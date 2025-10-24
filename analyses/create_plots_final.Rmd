@@ -1,0 +1,823 @@
+---
+title: "Figures for 'Language Model Behavioral Phases are Consistent Across Architecture, Training Data, and Scale'"
+output:
+  html_document:
+    self_contained: true
+---
+
+
+```{r} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+library(tidyverse)
+library(scales)
+library(colorspace)
+library(corrr)
+library(ggh4x)
+library(grid)
+library(gridExtra)
+
+# Other packages used for color palettes:
+# library(RColorBrewer)
+# library(viridisLite)
+
+```
+
+
+# Correlations
+
+Notes: 
+
+* $n$-gram: surprisal calculated using the true $n$-gram probability on the training corpus (The Pile for Pythia, ) with `infini-gram`.
+* `ucd_cc`: cosine distance (`cd`) between unweighted (`u`) mean of context and critical word based on the Common Crawl (`cc`) version of fastText.
+* `wcd_cc`: cosine distance (`cd`) between SGPT-weighted (`w`) mean of context and critical word based on the Common Crawl (`cc`) version of fastText.
+* `ucd_wiki`: cosine distance (`cd`) between unweighted (`u`) mean of context and critical word based on the Wikipedia (`wiki`) version of fastText.
+* `wcd_wiki`: cosine distance (`cd`) between SGPT-unweighted (`u`) mean of context and critical word based on the Wikipedia (`wiki`) version of fastText.
+
+
+
+```{r}
+corrs = read_tsv("all_cors.tsv")
+
+corr_plot_data = corrs%>%
+rename("Heuristic" = "CorrelatingVariable")%>%
+  mutate(FullName=paste(ModelFamily,ModelSize))%>%
+  filter(str_detect(Heuristic,"cd")|
+           (str_detect(Heuristic,"Pile")&ModelFamily=="pythia")|
+           (str_detect(Heuristic,"OpenWebText")&ModelFamily!="pythia")
+                    )%>%distinct()%>%
+  mutate(Heuristic = str_remove(str_remove(Heuristic,"OpenWebText_"),"Pile_"))%>%
+  mutate(FullName = str_replace(str_replace(FullName, "small", "117m"), "medium", "345m"))%>%
+  mutate(FullName = str_replace_all(str_replace_all(FullName,"m","M"),"b","B"))%>%
+  mutate(FullName = str_replace(str_replace(str_replace(str_replace(str_replace(str_replace(FullName,"pythia","Pythia"),"gpt2","Open-GPT2"),"MaMBa","Mamba"),"rwkv","RWKV"),"openweBtext_","Parc-"),"_",".") )%>%
+  mutate(FullName = fct_relevel(FullName, "Open-GPT2 117M", "Open-GPT2 345M", "Parc-Pythia 160M", "Parc-Mamba 130M",  "Parc-RWKV 169M", 
+     "Pythia 14M","Pythia 31M","Pythia 70M","Pythia 160M","Pythia 410M","Pythia 1B","Pythia 1.4B","Pythia 2.8B","Pythia 6.9B","Pythia 12B"                                                  
+ ))%>%
+  mutate(Heuristic = fct_recode(Heuristic,
+                                "5-gram Logprobs"="5gram",
+                                "4-gram Logprobs"="4gram",
+                                "3-gram Logprobs"="3gram",
+                                "2-gram Logprobs"="2gram",
+                                "1-gram Logprobs"="1gram",
+                                "Semantic Similarity\n(CC Unweighted)"="ucd_cc",
+                                "Semantic Similarity\n(CC SGPT-Weighted)"="wcd_cc",
+                                "Semantic Similarity\n(Wiki Unweighted)"="ucd_wiki",
+                                "Semantic Similarity\n(Wiki SGPT-Weighted)"="wcd_wiki"))%>%
+  mutate(Heuristic = fct_relevel(Heuristic,
+                                 "1-gram Logprobs",
+                                "2-gram Logprobs",
+                                "3-gram Logprobs",
+                                "4-gram Logprobs",
+                                "5-gram Logprobs",
+                                "Semantic Similarity\n(Wiki Unweighted)",
+                                "Semantic Similarity\n(Wiki SGPT-Weighted)",
+                                "Semantic Similarity\n(CC Unweighted)",
+                                "Semantic Similarity\n(CC SGPT-Weighted)"
+                                 ))%>%
+  mutate(ModelSeed=fct_relevel(ModelSeed,"seed1234"))
+
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+corr_plot = corr_plot_data%>%
+  ggplot(aes(x=ModelStep,y=PearsonR,color=Heuristic,fill=Heuristic)) + facet_wrap(.~FullName,ncol=5) +theme_minimal() +  stat_summary(fun = mean, geom="line")+
+  stat_summary(geom="ribbon", 
+               fun.data = mean_cl_normal,
+               fun.args=list(conf.int=0.95),
+               alpha = 0.3, colour = NA)+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + ylab("Pearson Correlation Coefficient")+ scale_color_manual(values=c( "#414487FF","#2C728EFF","#1F9E89FF","#54C568FF","#C3DF22FF","#E69F00","#D55E00","#ffb6db","#ff6db6")) + scale_fill_manual(values=c( "#414487FF","#2C728EFF","#1F9E89FF","#54C568FF","#C3DF22FF","#E69F00","#D55E00","#ffb6db","#ff6db6"))+
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))
+
+ggsave("corrs_pearson.pdf",corr_plot,width=12,height=5)
+
+corr_plot
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+corr_plot=corr_plot_data%>%
+  ggplot(aes(x=ModelStep,y=SpearmanRho,color=Heuristic,fill=Heuristic)) + facet_wrap(.~FullName,ncol=5) +theme_minimal() +  stat_summary(fun = mean, geom="line")+
+  stat_summary(geom="ribbon", 
+               fun.data = mean_cl_normal,
+               fun.args=list(conf.int=0.95),
+               alpha = 0.3, colour = NA)+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + ylab("Spearman Correlation Coefficient") + scale_color_manual(values=c( "#414487FF","#2C728EFF","#1F9E89FF","#54C568FF","#C3DF22FF","#E69F00","#D55E00","#ffb6db","#ff6db6")) + scale_fill_manual(values=c( "#414487FF","#2C728EFF","#1F9E89FF","#54C568FF","#C3DF22FF","#E69F00","#D55E00","#ffb6db","#ff6db6"))+
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))
+
+ggsave("corrs_spearman.pdf",corr_plot,width=12,height=5)
+
+corr_plot
+```
+
+
+```{r}
+all_seeds_design = matrix(c(
+  c(1,2,3,4,NA,NA),
+  c(5,6,7,8,NA,NA),
+  c(9,10,11,12,13,14),
+  c(15,16,17,18,19,20),
+  c(21,22,23,24,25,26),
+  c(27,28,29,30,31,NA),
+  c(32,33,34,35,36,NA),
+  c(37,38,39,40,41,NA),
+  c(42,43,44,45,46,NA),
+  c(47,48,49,50,51,NA),
+  c(52,53,54,55,56,NA),
+  c(57,58,59,60,61,NA),
+  c(62,63,64,65,66,NA),
+  c(67,68,69,70,71,NA),
+  c(72,73,74,75,76,NA),
+  c(77,78,79,80,81,NA)
+),16, 6, byrow = TRUE)
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+corrs_pearson_seed = corr_plot_data%>%
+  ggplot(aes(x=ModelStep,y=PearsonR,color=Heuristic,fill=Heuristic)) + facet_manual(FullName~ModelSeed,design=all_seeds_design) +theme_minimal() +  stat_summary(fun = mean, geom="line")+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + ylab("Pearson Correlation Coefficient")+ scale_color_manual(values=c( "#414487FF","#2C728EFF","#1F9E89FF","#54C568FF","#C3DF22FF","#E69F00","#D55E00","#ffb6db","#ff6db6")) + scale_fill_manual(values=c( "#414487FF","#2C728EFF","#1F9E89FF","#54C568FF","#C3DF22FF","#E69F00","#D55E00","#ffb6db","#ff6db6"))+
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))
+
+ggsave("corrs_pearson_seed.pdf",corrs_pearson_seed,width=12,height=18)
+
+corrs_pearson_seed
+```
+
+
+
+```{r,fig.width=10,echo=FALSE}
+corrs_spearman_seed = corr_plot_data%>%
+  ggplot(aes(x=ModelStep,y=SpearmanRho,color=Heuristic,fill=Heuristic)) + facet_manual(FullName~ModelSeed,design=all_seeds_design) +theme_minimal() +  stat_summary(fun = mean, geom="line")+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + ylab("Spearman Correlation Coefficient") + scale_color_manual(values=c( "#414487FF","#2C728EFF","#1F9E89FF","#54C568FF","#C3DF22FF","#E69F00","#D55E00","#ffb6db","#ff6db6")) + scale_fill_manual(values=c( "#414487FF","#2C728EFF","#1F9E89FF","#54C568FF","#C3DF22FF","#E69F00","#D55E00","#ffb6db","#ff6db6"))+
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))
+
+ggsave("corrs_spearman_seed.pdf",corrs_spearman_seed,width=12,height=18)
+
+corrs_spearman_seed
+```
+
+
+
+# Linear Regression Coefficients
+
+Coefficients from regressions of form: `lm_logprobs ~ same_corpus_1gram_logprobs + same_corpus_5gram_logprobs + cosine_similiarities`.
+
+
+```{r}
+regressions = read_tsv("regression_details.tsv")
+
+regression_data_ucd = regressions%>%
+  rename("Heuristic" = "PredictorName")%>%
+  mutate(FullName=paste(ModelFamily,ModelSize))%>%
+  filter(str_detect(RegressionType,"UCD"))%>%
+  filter(Heuristic!="Intercept")%>%
+  distinct()%>%
+  mutate(Heuristic = str_remove(str_remove(Heuristic,"OpenWebText_"),"Pile_"))%>%
+  mutate(FullName = str_replace(str_replace(FullName, "small", "117m"), "medium", "345m"))%>%
+  mutate(FullName = str_replace_all(str_replace_all(FullName,"m","M"),"b","B"))%>%
+  mutate(FullName = str_replace(str_replace(str_replace(str_replace(str_replace(str_replace(FullName,"pythia","Pythia"),"gpt2","Open-GPT2"),"MaMBa","Mamba"),"rwkv","RWKV"),"openweBtext_","Parc-"),"_",".") )%>%
+  mutate(FullName = fct_relevel(FullName, "Open-GPT2 117M", "Open-GPT2 345M", "Parc-Pythia 160M", "Parc-Mamba 130M",  "Parc-RWKV 169M", 
+     "Pythia 14M","Pythia 31M","Pythia 70M","Pythia 160M","Pythia 410M","Pythia 1B","Pythia 1.4B","Pythia 2.8B","Pythia 6.9B","Pythia 12B"                                                  
+ ))%>%
+  mutate(Heuristic = case_when(Heuristic=="1gram"&str_detect(RegressionType,"Matched") ~ "1gram_m",
+                               Heuristic=="1gram"&str_detect(RegressionType,"Unmatched") ~ "1gram_u",
+                               Heuristic=="5gram"&str_detect(RegressionType,"Matched") ~ "5gram_m",
+                               Heuristic=="5gram"&str_detect(RegressionType,"Unmatched") ~ "5gram_u",
+                               Heuristic=="ucd_cc"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="ucd_wiki"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="ucd_cc"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="ucd_wiki"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="wcd_cc"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="wcd_wiki"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="wcd_cc"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="wcd_wiki"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               T ~ Heuristic))%>%
+  mutate(Heuristic = fct_recode(Heuristic,
+                                "5-gram Logprobs\n(Matched)"="5gram_m",
+                                "5-gram Logprobs\n(Unmatchted)"="5gram_u",
+                                "1-gram Logprobs\n(Matched)"="1gram_m",
+                                "1-gram Logprobs\n(Unmatched)"="1gram_u",
+                                "Semantic Similarity\n(Unmatched n-grams)"="cd_u",
+                                "Semantic Similarity\n(Matched n-grams)"="cd_m"))%>%
+  mutate(Heuristic = fct_relevel(Heuristic,
+                                "1-gram Logprobs\n(Matched)",
+                                "1-gram Logprobs\n(Unmatched)",
+                                "5-gram Logprobs\n(Matched)",
+                                "5-gram Logprobs\n(Unmatchted)",
+                                "Semantic Similarity\n(Matched n-grams)",
+                                "Semantic Similarity\n(Unmatched n-grams)"
+                                 ))%>%
+  mutate(RegressionType = fct_recode(RegressionType,
+                                     "Semantic Similarity\n(CC Unweighted)"= "UnmatchedNgram_UCDCC",
+                                     "Semantic Similarity\n(Wiki Unweighted)" = "UnmatchedNgram_UCDWiki",
+                                     "Semantic Similarity\n(CC Unweighted)"= "MatchedNgram_UCDCC",
+                                     "Semantic Similarity\n(Wiki Unweighted)"= "MatchedNgram_UCDWiki" ))%>%
+  
+mutate(RegressionType = fct_relevel(RegressionType,"Semantic Similarity\n(Wiki Unweighted)",
+                                    "Semantic Similarity\n(CC Unweighted)"))%>%
+  mutate(ModelSeed=fct_relevel(ModelSeed,"seed1234"))
+  
+
+
+
+
+regression_data_wcd = regressions%>%
+  rename("Heuristic" = "PredictorName")%>%
+  mutate(FullName=paste(ModelFamily,ModelSize))%>%
+  filter(str_detect(RegressionType,"WCD"))%>%
+  filter(Heuristic!="Intercept")%>%
+  distinct()%>%
+  mutate(Heuristic = str_remove(str_remove(Heuristic,"OpenWebText_"),"Pile_"))%>%
+  mutate(FullName = str_replace(str_replace(FullName, "small", "117m"), "medium", "345m"))%>%
+  mutate(FullName = str_replace_all(str_replace_all(FullName,"m","M"),"b","B"))%>%
+  mutate(FullName = str_replace(str_replace(str_replace(str_replace(str_replace(str_replace(FullName,"pythia","Pythia"),"gpt2","Open-GPT2"),"MaMBa","Mamba"),"rwkv","RWKV"),"openweBtext_","Parc-"),"_",".") )%>%
+  mutate(FullName = fct_relevel(FullName, "Open-GPT2 117M", "Open-GPT2 345M", "Parc-Pythia 160M", "Parc-Mamba 130M",  "Parc-RWKV 169M", 
+     "Pythia 14M","Pythia 31M","Pythia 70M","Pythia 160M","Pythia 410M","Pythia 1B","Pythia 1.4B","Pythia 2.8B","Pythia 6.9B","Pythia 12B"                                                  
+ ))%>%
+  mutate(Heuristic = case_when(Heuristic=="1gram"&str_detect(RegressionType,"Matched") ~ "1gram_m",
+                               Heuristic=="1gram"&str_detect(RegressionType,"Unmatched") ~ "1gram_u",
+                               Heuristic=="5gram"&str_detect(RegressionType,"Matched") ~ "5gram_m",
+                               Heuristic=="5gram"&str_detect(RegressionType,"Unmatched") ~ "5gram_u",
+                               Heuristic=="ucd_cc"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="ucd_wiki"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="ucd_cc"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="ucd_wiki"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="wcd_cc"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="wcd_wiki"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="wcd_cc"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="wcd_wiki"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               T ~ Heuristic))%>%
+  mutate(Heuristic = fct_recode(Heuristic,
+                                "5-gram Logprobs\n(Matched)"="5gram_m",
+                                "5-gram Logprobs\n(Unmatchted)"="5gram_u",
+                                "1-gram Logprobs\n(Matched)"="1gram_m",
+                                "1-gram Logprobs\n(Unmatched)"="1gram_u",
+                                "Semantic Similarity\n(Unmatched n-grams)"="cd_u",
+                                "Semantic Similarity\n(Matched n-grams)"="cd_m"))%>%
+  mutate(Heuristic = fct_relevel(Heuristic,
+                                "1-gram Logprobs\n(Matched)",
+                                "1-gram Logprobs\n(Unmatched)",
+                                "5-gram Logprobs\n(Matched)",
+                                "5-gram Logprobs\n(Unmatchted)",
+                                "Semantic Similarity\n(Matched n-grams)",
+                                "Semantic Similarity\n(Unmatched n-grams)"
+                                 ))%>%
+  mutate(RegressionType = fct_recode(RegressionType,
+                                     "Semantic Similarity\n(CC Weighted)"= "UnmatchedNgram_WCDCC",
+                                     "Semantic Similarity\n(Wiki Weighted)" = "UnmatchedNgram_WCDWiki",
+                                     "Semantic Similarity\n(CC Weighted)"= "MatchedNgram_WCDCC",
+                                     "Semantic Similarity\n(Wiki Weighted)"= "MatchedNgram_WCDWiki" ))%>%
+  
+mutate(RegressionType = fct_relevel(RegressionType,"Semantic Similarity\n(Wiki Weighted)",
+                                    "Semantic Similarity\n(CC Weighted)"))%>%
+  mutate(ModelSeed=fct_relevel(ModelSeed,"seed1234"))
+  
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_unweighted = regression_data_ucd%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,linetype=RegressionType)) + facet_wrap(.~FullName,ncol=5)  +theme_minimal() +  stat_summary(fun = mean, geom="line")+ scale_linetype_manual(name = "Similarity Metric",values=c("solid","dotted"))+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6"))+ 
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient")
+
+ggsave("preds_unweighted.pdf",preds_unweighted,width=12,height=5)
+
+preds_unweighted
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_weighted = regression_data_wcd%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,linetype=RegressionType)) + facet_wrap(.~FullName,ncol=5)  +theme_minimal() +  stat_summary(fun = mean, geom="line")+ scale_linetype_manual(name = "Similarity Metric",values=c("solid","dotted"))+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6"))+ 
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient")
+
+ggsave("preds_weighted.pdf",preds_weighted,width=12,height=5)
+
+preds_weighted
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_seed_ucdwiki = regression_data_ucd%>%
+  filter(RegressionType=="Semantic Similarity\n(Wiki Unweighted)")%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,fill=Heuristic)) + facet_manual(FullName~ModelSeed,design=all_seeds_design)  +theme_minimal() + geom_line() + geom_ribbon(aes(ymin=ConfIntLower,ymax=ConfIntLower),alpha = 0.3, colour = NA)+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6"))+ scale_fill_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6")) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient")+
+  theme(legend.key.spacing.y = unit(0.25, 'cm'))
+
+ggsave("preds_seed_ucdwiki.pdf",preds_seed_ucdwiki,width=12,height=18)
+
+preds_seed_ucdwiki
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_seed_wcdwiki = regression_data_wcd%>%
+  filter(RegressionType=="Semantic Similarity\n(Wiki Weighted)")%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,fill=Heuristic)) + facet_manual(FullName~ModelSeed,design=all_seeds_design)  +theme_minimal() + geom_line() + geom_ribbon(aes(ymin=ConfIntLower,ymax=ConfIntLower),alpha = 0.3, colour = NA)+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6"))+ scale_fill_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6")) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient")+
+  theme(legend.key.spacing.y = unit(0.25, 'cm'))
+
+ggsave("preds_seed_wcdwiki.pdf",preds_seed_wcdwiki,width=12,height=18)
+
+preds_seed_wcdwiki
+```
+
+
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_seed_ucdcc = regression_data_ucd%>%
+  filter(RegressionType=="Semantic Similarity\n(CC Unweighted)")%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,fill=Heuristic)) + facet_manual(FullName~ModelSeed,design=all_seeds_design)  +theme_minimal() + geom_line() + geom_ribbon(aes(ymin=ConfIntLower,ymax=ConfIntLower),alpha = 0.3, colour = NA)+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6"))+ scale_fill_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6")) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient")+
+  theme(legend.key.spacing.y = unit(0.25, 'cm'))
+
+ggsave("preds_seed_ucdcc.pdf",preds_seed_ucdcc,width=12,height=18)
+
+preds_seed_ucdcc
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_seed_wcdcc = regression_data_wcd%>%
+  filter(RegressionType=="Semantic Similarity\n(CC Weighted)")%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,fill=Heuristic)) + facet_manual(FullName~ModelSeed,design=all_seeds_design)  +theme_minimal() + geom_line() + geom_ribbon(aes(ymin=ConfIntLower,ymax=ConfIntLower),alpha = 0.3, colour = NA)+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6"))+ scale_fill_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF", "#D55E00","#ff6db6")) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient")+
+  theme(legend.key.spacing.y = unit(0.25, 'cm'))
+
+ggsave("preds_seed_wcdcc.pdf",preds_seed_wcdcc,width=12,height=18)
+
+preds_seed_wcdcc
+```
+
+
+
+# Differences in Fit
+
+
+```{r}
+variance = read_tsv("regression_performance.tsv")
+
+variance_data_ucd = variance%>%
+  # rename("Heuristic" = "PredictorName")%>%
+  mutate(FullName=paste(ModelFamily,ModelSize))%>%
+  filter(str_detect(RegressionType,"UCD"))%>%
+  # filter(Heuristic!="Intercept")%>%
+  distinct()%>%
+  # mutate(Heuristic = str_remove(str_remove(Heuristic,"OpenWebText_"),"Pile_"))%>%
+  mutate(FullName = str_replace(str_replace(FullName, "small", "117m"), "medium", "345m"))%>%
+  mutate(FullName = str_replace_all(str_replace_all(FullName,"m","M"),"b","B"))%>%
+  mutate(FullName = str_replace(str_replace(str_replace(str_replace(str_replace(str_replace(FullName,"pythia","Pythia"),"gpt2","Open-GPT2"),"MaMBa","Mamba"),"rwkv","RWKV"),"openweBtext_","Parc-"),"_",".") )%>%
+  mutate(FullName = fct_relevel(FullName, "Open-GPT2 117M", "Open-GPT2 345M", "Parc-Pythia 160M", "Parc-Mamba 130M",  "Parc-RWKV 169M", 
+     "Pythia 14M","Pythia 31M","Pythia 70M","Pythia 160M","Pythia 410M","Pythia 1B","Pythia 1.4B","Pythia 2.8B","Pythia 6.9B","Pythia 12B"                                                  
+ ))%>%
+  mutate(RegressionType = fct_recode(RegressionType,
+                                     "Unmatched n-gram +\nCC similarity"= "UnmatchedNgram_UCDCC",
+                                     "Unmatched n-gram +\nWiki similarity" = "UnmatchedNgram_UCDWiki",
+                                     "Matched n-gram +\nCC similarity"= "MatchedNgram_UCDCC",
+                                     "Matched n-gram +\nWiki similarity"= "MatchedNgram_UCDWiki" ))%>%
+  
+mutate(RegressionType = fct_relevel(RegressionType,"Matched n-gram +\nWiki similarity","Matched n-gram +\nCC similarity","Unmatched n-gram +\nWiki similarity","Unmatched n-gram +\nCC similarity"))%>%
+  mutate(ModelSeed=fct_relevel(ModelSeed,"seed1234"))%>%pivot_longer(c(Rsquared,Rsquared_val),names_to = "Dataset Split",values_to="R-Squared")%>%
+  mutate(`Dataset Split` = fct_recode(`Dataset Split`,
+                                      "Training Set" = "Rsquared",
+                                      "Validation Set" = "Rsquared_val"))
+  
+
+variance_data_wcd = variance%>%
+  # rename("Heuristic" = "PredictorName")%>%
+  mutate(FullName=paste(ModelFamily,ModelSize))%>%
+  filter(str_detect(RegressionType,"WCD"))%>%
+  # filter(Heuristic!="Intercept")%>%
+  distinct()%>%
+  # mutate(Heuristic = str_remove(str_remove(Heuristic,"OpenWebText_"),"Pile_"))%>%
+  mutate(FullName = str_replace(str_replace(FullName, "small", "117m"), "medium", "345m"))%>%
+  mutate(FullName = str_replace_all(str_replace_all(FullName,"m","M"),"b","B"))%>%
+  mutate(FullName = str_replace(str_replace(str_replace(str_replace(str_replace(str_replace(FullName,"pythia","Pythia"),"gpt2","Open-GPT2"),"MaMBa","Mamba"),"rwkv","RWKV"),"openweBtext_","Parc-"),"_",".") )%>%
+  mutate(FullName = fct_relevel(FullName, "Open-GPT2 117M", "Open-GPT2 345M", "Parc-Pythia 160M", "Parc-Mamba 130M",  "Parc-RWKV 169M", 
+     "Pythia 14M","Pythia 31M","Pythia 70M","Pythia 160M","Pythia 410M","Pythia 1B","Pythia 1.4B","Pythia 2.8B","Pythia 6.9B","Pythia 12B"                                                  
+ ))%>%
+  mutate(RegressionType = fct_recode(RegressionType,
+                                     "Unmatched n-gram +\nCC similarity"= "UnmatchedNgram_WCDCC",
+                                     "Unmatched n-gram +\nWiki similarity" = "UnmatchedNgram_WCDWiki",
+                                     "Matched n-gram +\nCC similarity"= "MatchedNgram_WCDCC",
+                                     "Matched n-gram +\nWiki similarity"= "MatchedNgram_WCDWiki" ))%>%
+  
+mutate(RegressionType = fct_relevel(RegressionType,"Matched n-gram +\nWiki similarity","Matched n-gram +\nCC similarity","Unmatched n-gram +\nWiki similarity","Unmatched n-gram +\nCC similarity"))%>%
+  mutate(ModelSeed=fct_relevel(ModelSeed,"seed1234"))%>%pivot_longer(c(Rsquared,Rsquared_val),names_to = "Dataset Split",values_to="R-Squared")%>%
+  mutate(`Dataset Split` = fct_recode(`Dataset Split`,
+                                      "Training Set" = "Rsquared",
+                                      "Validation Set" = "Rsquared_val"))
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+
+rsq_plot = variance_data_wcd%>%
+  ggplot(aes(x=ModelStep,y=`R-Squared`,color=RegressionType,linetype=`Dataset Split`))  + facet_wrap(.~FullName,ncol=5)  +theme_minimal() + stat_summary(fun = mean, geom="line") + scale_linetype_manual(name = "Dataset Split",values=c("solid","dotted")) + scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(name = "Training Data", values=c("#E69F00","#CC79A7","#009E73","#56B4E9"))+
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))
+
+ggsave("rsq.pdf",rsq_plot,width=12,height=5)
+
+rsq_plot
+```
+
+
+
+
+
+
+```{r,fig.width=10,echo=FALSE}
+
+rsq_seed_ucd = variance_data_ucd%>%
+  rename("Regression"="RegressionType")%>%
+  ggplot(aes(x=ModelStep,y=`R-Squared`,color=Regression,fill=Regression,linetype=`Dataset Split`)) + facet_manual(FullName~ModelSeed,design=all_seeds_design)  +theme_minimal() + geom_line()  + scale_linetype_manual(name = "Dataset Split",values=c("solid","dotted"))+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#E69F00","#CC79A7","#009E73","#56B4E9")) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient")+
+  theme(legend.key.spacing.y = unit(0.25, 'cm'))
+
+ggsave("rsq_seed_ucd.pdf",rsq_seed_ucd,width=12,height=18)
+
+rsq_seed_ucd
+```
+
+```{r,fig.width=10,echo=FALSE}
+
+rsq_seed_wcd = variance_data_wcd%>%
+  rename("Regression"="RegressionType")%>%
+  ggplot(aes(x=ModelStep,y=`R-Squared`,color=Regression,fill=Regression,linetype=`Dataset Split`)) + facet_manual(FullName~ModelSeed,design=all_seeds_design)  +theme_minimal() + geom_line()  + scale_linetype_manual(name = "Dataset Split",values=c("solid","dotted"))+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#E69F00","#CC79A7","#009E73","#56B4E9")) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient")+
+  theme(legend.key.spacing.y = unit(0.25, 'cm'))
+
+ggsave("rsq_seed_wcd.pdf",rsq_seed_wcd,width=12,height=18)
+
+rsq_seed_wcd
+```
+
+
+
+```{r}
+coefs_and_rsq = arrangeGrob(textGrob("(A) Regression coefficients"),preds_weighted,textGrob(""),textGrob("(B) Variance explained by all heuristics"),rsq_plot,ncol=1,heights=c(0.1,1,0.1,0.1,1))
+
+ggsave("coefs_and_rsq.pdf",coefs_and_rsq,width=12,height=11)
+```
+
+
+# Un-Normalized Linear Regression Coefficients
+
+Coefficients from regressions of form: `lm_logprobs ~ same_corpus_1gram_logprobs + same_corpus_5gram_logprobs + cosine_similiarities`.
+
+
+```{r}
+regressions_unnormalized = read_tsv("regression_details_unnormalized.tsv")
+
+regression_data_ucd_unnormalized = regressions_unnormalized%>%
+  rename("Heuristic" = "PredictorName")%>%
+  mutate(FullName=paste(ModelFamily,ModelSize))%>%
+  filter(str_detect(RegressionType,"UCD"))%>%
+  filter(Heuristic!="Intercept")%>%
+  distinct()%>%
+  mutate(Heuristic = str_remove(str_remove(Heuristic,"OpenWebText_"),"Pile_"))%>%
+  mutate(FullName = str_replace(str_replace(FullName, "small", "117m"), "medium", "345m"))%>%
+  mutate(FullName = str_replace_all(str_replace_all(FullName,"m","M"),"b","B"))%>%
+  mutate(FullName = str_replace(str_replace(str_replace(str_replace(str_replace(str_replace(FullName,"pythia","Pythia"),"gpt2","Open-GPT2"),"MaMBa","Mamba"),"rwkv","RWKV"),"openweBtext_","Parc-"),"_",".") )%>%
+  mutate(FullName = fct_relevel(FullName, "Open-GPT2 117M", "Open-GPT2 345M", "Parc-Pythia 160M", "Parc-Mamba 130M",  "Parc-RWKV 169M", 
+     "Pythia 14M","Pythia 31M","Pythia 70M","Pythia 160M","Pythia 410M","Pythia 1B","Pythia 1.4B","Pythia 2.8B","Pythia 6.9B","Pythia 12B"                                                  
+ ))%>%
+  mutate(Heuristic = case_when(Heuristic=="1gram"&str_detect(RegressionType,"Matched") ~ "1gram_m",
+                               Heuristic=="1gram"&str_detect(RegressionType,"Unmatched") ~ "1gram_u",
+                               Heuristic=="5gram"&str_detect(RegressionType,"Matched") ~ "5gram_m",
+                               Heuristic=="5gram"&str_detect(RegressionType,"Unmatched") ~ "5gram_u",
+                               Heuristic=="ucd_cc"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="ucd_wiki"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="ucd_cc"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="ucd_wiki"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="wcd_cc"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="wcd_wiki"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="wcd_cc"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="wcd_wiki"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               T ~ Heuristic))%>%
+  mutate(Heuristic = fct_recode(Heuristic,
+                                "5-gram Logprobs\n(Matched)"="5gram_m",
+                                "5-gram Logprobs\n(Unmatchted)"="5gram_u",
+                                "1-gram Logprobs\n(Matched)"="1gram_m",
+                                "1-gram Logprobs\n(Unmatched)"="1gram_u",
+                                "Semantic Similarity\n(Unmatched n-grams)"="cd_u",
+                                "Semantic Similarity\n(Matched n-grams)"="cd_m"))%>%
+  mutate(Heuristic = fct_relevel(Heuristic,
+                                "1-gram Logprobs\n(Matched)",
+                                "1-gram Logprobs\n(Unmatched)",
+                                "5-gram Logprobs\n(Matched)",
+                                "5-gram Logprobs\n(Unmatchted)",
+                                "Semantic Similarity\n(Matched n-grams)",
+                                "Semantic Similarity\n(Unmatched n-grams)"
+                                 ))%>%
+  mutate(RegressionType = fct_recode(RegressionType,
+                                     "Semantic Similarity\n(CC Unweighted)"= "UnmatchedNgram_UCDCC",
+                                     "Semantic Similarity\n(Wiki Unweighted)" = "UnmatchedNgram_UCDWiki",
+                                     "Semantic Similarity\n(CC Unweighted)"= "MatchedNgram_UCDCC",
+                                     "Semantic Similarity\n(Wiki Unweighted)"= "MatchedNgram_UCDWiki" ))%>%
+  
+mutate(RegressionType = fct_relevel(RegressionType,"Semantic Similarity\n(Wiki Unweighted)",
+                                    "Semantic Similarity\n(CC Unweighted)"))%>%
+  mutate(ModelSeed=fct_relevel(ModelSeed,"seed1234"))
+  
+
+
+
+
+regression_data_wcd_unnormalized = regressions_unnormalized%>%
+  rename("Heuristic" = "PredictorName")%>%
+  mutate(FullName=paste(ModelFamily,ModelSize))%>%
+  filter(str_detect(RegressionType,"WCD"))%>%
+  filter(Heuristic!="Intercept")%>%
+  distinct()%>%
+  mutate(Heuristic = str_remove(str_remove(Heuristic,"OpenWebText_"),"Pile_"))%>%
+  mutate(FullName = str_replace(str_replace(FullName, "small", "117m"), "medium", "345m"))%>%
+  mutate(FullName = str_replace_all(str_replace_all(FullName,"m","M"),"b","B"))%>%
+  mutate(FullName = str_replace(str_replace(str_replace(str_replace(str_replace(str_replace(FullName,"pythia","Pythia"),"gpt2","Open-GPT2"),"MaMBa","Mamba"),"rwkv","RWKV"),"openweBtext_","Parc-"),"_",".") )%>%
+  mutate(FullName = fct_relevel(FullName, "Open-GPT2 117M", "Open-GPT2 345M", "Parc-Pythia 160M", "Parc-Mamba 130M",  "Parc-RWKV 169M", 
+     "Pythia 14M","Pythia 31M","Pythia 70M","Pythia 160M","Pythia 410M","Pythia 1B","Pythia 1.4B","Pythia 2.8B","Pythia 6.9B","Pythia 12B"                                                  
+ ))%>%
+  mutate(Heuristic = case_when(Heuristic=="1gram"&str_detect(RegressionType,"Matched") ~ "1gram_m",
+                               Heuristic=="1gram"&str_detect(RegressionType,"Unmatched") ~ "1gram_u",
+                               Heuristic=="5gram"&str_detect(RegressionType,"Matched") ~ "5gram_m",
+                               Heuristic=="5gram"&str_detect(RegressionType,"Unmatched") ~ "5gram_u",
+                               Heuristic=="ucd_cc"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="ucd_wiki"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="ucd_cc"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="ucd_wiki"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="wcd_cc"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="wcd_wiki"&str_detect(RegressionType,"Unmatched") ~ "cd_u",
+                               Heuristic=="wcd_cc"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               Heuristic=="wcd_wiki"&str_detect(RegressionType,"Matched") ~ "cd_m",
+                               T ~ Heuristic))%>%
+  mutate(Heuristic = fct_recode(Heuristic,
+                                "5-gram Logprobs\n(Matched)"="5gram_m",
+                                "5-gram Logprobs\n(Unmatchted)"="5gram_u",
+                                "1-gram Logprobs\n(Matched)"="1gram_m",
+                                "1-gram Logprobs\n(Unmatched)"="1gram_u",
+                                "Semantic Similarity\n(Unmatched n-grams)"="cd_u",
+                                "Semantic Similarity\n(Matched n-grams)"="cd_m"))%>%
+  mutate(Heuristic = fct_relevel(Heuristic,
+                                "1-gram Logprobs\n(Matched)",
+                                "1-gram Logprobs\n(Unmatched)",
+                                "5-gram Logprobs\n(Matched)",
+                                "5-gram Logprobs\n(Unmatchted)",
+                                "Semantic Similarity\n(Matched n-grams)",
+                                "Semantic Similarity\n(Unmatched n-grams)"
+                                 ))%>%
+  mutate(RegressionType = fct_recode(RegressionType,
+                                     "Semantic Similarity\n(CC Weighted)"= "UnmatchedNgram_WCDCC",
+                                     "Semantic Similarity\n(Wiki Weighted)" = "UnmatchedNgram_WCDWiki",
+                                     "Semantic Similarity\n(CC Weighted)"= "MatchedNgram_WCDCC",
+                                     "Semantic Similarity\n(Wiki Weighted)"= "MatchedNgram_WCDWiki" ))%>%
+  
+mutate(RegressionType = fct_relevel(RegressionType,"Semantic Similarity\n(Wiki Weighted)",
+                                    "Semantic Similarity\n(CC Weighted)"))%>%
+  mutate(ModelSeed=fct_relevel(ModelSeed,"seed1234"))
+  
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_unweighted_unnormalized_ngrams = regression_data_ucd_unnormalized%>%
+  filter(!str_detect(Heuristic,"Similarity"))%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,linetype=RegressionType)) + facet_wrap(.~FullName,ncol=5)  +theme_minimal() +  stat_summary(fun = mean, geom="line")+ scale_linetype_manual(name = "Similarity Metric",values=c("solid","dotted"))+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF"))+ 
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient (n-gram bits / language model bit)")
+
+ggsave("preds_unweighted_unnormalized_ngrams.pdf",preds_unweighted_unnormalized_ngrams,width=12,height=5)
+
+preds_unweighted_unnormalized_ngrams
+```
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_unweighted_unnormalized_distances = regression_data_ucd_unnormalized%>%
+  filter(str_detect(Heuristic,"Similarity"))%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,linetype=RegressionType)) + facet_wrap(.~FullName,ncol=5)  +theme_minimal() +  stat_summary(fun = mean, geom="line")+ scale_linetype_manual(name = "Similarity Metric",values=c("solid","dotted"))+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#D55E00","#ff6db6"))+ 
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient (contextual cosine distance / language model bit)")
+
+ggsave("preds_unweighted_unnormalized_distances.pdf",preds_unweighted_unnormalized_distances,width=12,height=5)
+
+preds_unweighted_unnormalized_distances
+```
+
+
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_weighted_unnormalized_ngrams = regression_data_wcd_unnormalized%>%
+  filter(!str_detect(Heuristic,"Similarity"))%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,linetype=RegressionType)) + facet_wrap(.~FullName,ncol=5)  +theme_minimal() +  stat_summary(fun = mean, geom="line")+ scale_linetype_manual(name = "Similarity Metric",values=c("solid","dotted"))+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#482677FF","#2C728EFF", "#88D548FF","#CAE11FFF"))+ 
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient (n-gram bits / language model bit)")
+
+ggsave("preds_weighted_unnormalized_ngrams.pdf",preds_weighted_unnormalized_ngrams,width=12,height=5)
+
+preds_weighted_unnormalized_ngrams
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+
+preds_weighted_unnormalized_distances = regression_data_wcd_unnormalized%>%
+  filter(str_detect(Heuristic,"Similarity"))%>%
+  ggplot(aes(x=ModelStep,y=Coefficient,color=Heuristic,linetype=RegressionType)) + facet_wrap(.~FullName,ncol=5)  +theme_minimal() +  stat_summary(fun = mean, geom="line")+ scale_linetype_manual(name = "Similarity Metric",values=c("solid","dotted"))+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c("#D55E00","#ff6db6"))+ 
+  theme(legend.key.spacing.y = unit(0.25, 'cm')) + guides(color = guide_legend(byrow = TRUE))+ylab("Coefficient (contextual cosine distance / language model bit)")
+
+ggsave("preds_weighted_unnormalized_distances.pdf",preds_weighted_unnormalized_distances,width=12,height=5)
+
+preds_weighted_unnormalized_distances
+```
+
+
+# Additional Correlations
+
+```{r}
+all_data_train = read_tsv("merged_results.tsv")%>%filter(Set=="train")
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+merged_nonlm = all_data_train%>%select(Set,FullSentence,Pile_5gram,Pile_4gram,Pile_3gram,Pile_2gram,Pile_1gram,OpenWebText_5gram,OpenWebText_4gram,OpenWebText_3gram,OpenWebText_2gram,OpenWebText_1gram,ucd_cc,wcd_cc,ucd_wiki,wcd_wiki)
+
+
+cors = corrr::correlate(merged_nonlm%>%select(-Set,-FullSentence),method="pearson",diagonal = 1)
+
+
+corrs = cors%>%
+  pivot_longer(colnames(cors)[2:length(colnames(cors))],names_to="var2",values_to="Correlation" )%>%
+    mutate(term = fct_recode(term,
+                                "The Pile: 5-gram Logprobs"="Pile_5gram",
+                                "The Pile: 4-gram Logprobs"="Pile_4gram",
+                                "The Pile: 3-gram Logprobs"="Pile_3gram",
+                                "The Pile: 2-gram Logprobs"="Pile_2gram",
+                                "The Pile: 1-gram Logprobs"="Pile_1gram",
+                                "OpenWebText: 5-gram Logprobs"="OpenWebText_5gram",
+                                "OpenWebText: 4-gram Logprobs"="OpenWebText_4gram",
+                                "OpenWebText: 3-gram Logprobs"="OpenWebText_3gram",
+                                "OpenWebText: 2-gram Logprobs"="OpenWebText_2gram",
+                                "OpenWebText: 1-gram Logprobs"="OpenWebText_1gram",
+                                "Semantic Similarity (CC Unweighted)"="ucd_cc",
+                                "Semantic Similarity (CC SGPT-Weighted)"="wcd_cc",
+                                "Semantic Similarity (Wiki Unweighted)"="ucd_wiki",
+                                "Semantic Similarity (Wiki SGPT-Weighted)"="wcd_wiki"))%>%
+      mutate(var2 = fct_recode(var2,
+                                "The Pile: 5-gram Logprobs"="Pile_5gram",
+                                "The Pile: 4-gram Logprobs"="Pile_4gram",
+                                "The Pile: 3-gram Logprobs"="Pile_3gram",
+                                "The Pile: 2-gram Logprobs"="Pile_2gram",
+                                "The Pile: 1-gram Logprobs"="Pile_1gram",
+                                "OpenWebText: 5-gram Logprobs"="OpenWebText_5gram",
+                                "OpenWebText: 4-gram Logprobs"="OpenWebText_4gram",
+                                "OpenWebText: 3-gram Logprobs"="OpenWebText_3gram",
+                                "OpenWebText: 2-gram Logprobs"="OpenWebText_2gram",
+                                "OpenWebText: 1-gram Logprobs"="OpenWebText_1gram",
+                                "Semantic Similarity (CC Unweighted)"="ucd_cc",
+                                "Semantic Similarity (CC SGPT-Weighted)"="wcd_cc",
+                                "Semantic Similarity (Wiki Unweighted)"="ucd_wiki",
+                                "Semantic Similarity (Wiki SGPT-Weighted)"="wcd_wiki"))%>%
+  ggplot(aes(x=term,y=var2,fill=Correlation))+ geom_tile()+ theme_minimal()+
+  geom_text(aes(var2, term, label = round(Correlation,2)), color = "white") + scale_fill_viridis_c(option="magma",limits=c(0,1),end=0.7) +xlab(NULL) + ylab(NULL)+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave("pred_corrs.pdf",corrs,width=9,height=7)
+
+corrs
+```
+
+
+
+
+```{r}
+cross_architecture_reformatted = all_data_train%>%
+  select("FullSentence",contains("anon__openwebtext"))%>%
+  pivot_longer(cols=colnames(all_data_train%>%select(contains("anon__openwebtext"))),names_to="ModelName",values_to="Surprisal")%>%
+  separate(col = ModelName,into = c("ModelName","ModelCheckpoint"),sep = "___")%>%
+  mutate(ModelName = str_remove(ModelName,"anon__"))%>%
+  mutate(ModelName = str_replace_all(str_replace_all(ModelName,"m","M"),"b","B"))%>%
+  mutate(ModelName = str_replace(str_replace(str_replace(str_replace(str_replace(str_replace(ModelName,"pythia","Pythia"),"gpt2","Open-GPT2"),"MaMBa","Mamba"),"rwkv","RWKV"),"openweBtext_","Parc-"),"_",".") )%>%
+  mutate(ModelName = str_replace_all(ModelName,"-"," "))%>%
+  mutate(ModelName = str_replace_all(ModelName,"OWT GPT2","Open-GPT2"))%>%
+  mutate(ModelName = str_replace_all(ModelName,"Parc ","Parc-"))%>%
+  mutate(ModelName = str_replace(ModelName,"seed","(Seed "))%>%
+  mutate(ModelName = paste(ModelName,")",sep=""))%>%distinct()%>%
+  pivot_wider(names_from = "ModelName",values_from = "Surprisal")
+```
+
+```{r}
+
+checkpoints_list = c(
+  "checkpoint-10","checkpoint-20","checkpoint-40","checkpoint-80","checkpoint-160","checkpoint-320",
+  "checkpoint-640","checkpoint-1280",
+  "checkpoint-2560","checkpoint-4000"
+  )
+
+graph_list = vector('list', length(checkpoints_list))
+
+for (i in 1:length(checkpoints_list)){
+  checkpoint = checkpoints_list[i]
+  cors = corrr::correlate(cross_architecture_reformatted%>%
+                            filter(ModelCheckpoint==checkpoint)%>%
+                            select(-ModelCheckpoint,-FullSentence),method="pearson",diagonal = 1)
+
+graph_list[[i]] = cors%>%
+  pivot_longer(colnames(cors)[2:length(colnames(cors))],names_to="var2",values_to="Correlation" )%>%
+  ggplot(aes(x=term,y=var2,fill=Correlation))+ geom_tile()+ theme_minimal()+
+  geom_text(aes(var2, term, label = round(Correlation,2)), color = "white") +xlab(NULL) + ylab(NULL) + scale_fill_gradient(limits=c(0, 1), oob=squish) + ggtitle(checkpoint%>%str_replace("checkpoint-","Checkpoint ")) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),plot.title = element_text(hjust = 0.5)) + scale_fill_viridis_c(option="mako",limits=c(0,1),end=0.8)
+
+graph_name = paste("inter_model_corrs","_",checkpoint,".pdf",sep="")
+}
+```
+
+```{r,fig.width=10,echo=FALSE}
+intercorr = arrangeGrob(graph_list[[1]],graph_list[[2]],graph_list[[3]],graph_list[[4]],graph_list[[5]],graph_list[[6]],graph_list[[7]],
+                         graph_list[[8]],graph_list[[9]],graph_list[[10]],ncol=2)
+
+ggsave("intercorr.pdf",intercorr,width=22,height=30)
+
+intercorr
+```
+
+
+# Evaluations on Benchmarks
+
+```{r}
+eval_data= read_tsv("eval_results.tsv")
+```
+
+
+```{r}
+eval_data = eval_data%>%
+  mutate(FullName=paste(ModelFamily,ModelSize))%>%
+  mutate(FullName = str_replace(str_replace(FullName, "small", "117m"), "medium", "345m"))%>%
+  mutate(FullName = str_replace_all(str_replace_all(FullName,"m","M"),"b","B"))%>%
+  mutate(FullName = str_replace(str_replace(str_replace(str_replace(str_replace(str_replace(FullName,"pythia","Pythia"),"gpt2","Open-GPT2"),"MaMBa","Mamba"),"rwkv","RWKV"),"openweBtext_","Parc-"),"_",".") )%>%
+  mutate(FullName = fct_relevel(FullName, "Open-GPT2 117M", "Open-GPT2 345M", "Parc-Pythia 160M", "Parc-Mamba 130M",  "Parc-RWKV 169M", 
+     "Pythia 14M","Pythia 31M","Pythia 70M","Pythia 160M","Pythia 410M","Pythia 1B","Pythia 1.4B","Pythia 2.8B","Pythia 6.9B","Pythia 12B"                                                  
+ ))
+```
+
+
+```{r,fig.width=10,echo=FALSE}
+eval_plot_acc = eval_data%>%
+  filter(!str_detect(Task,"blimp_"))%>%
+  filter(MetricName=="acc"|MetricName=="acc_stderr")%>%
+  pivot_wider(names_from="MetricName",values_from = MetricValue)%>%
+  mutate(acc=as.numeric(acc),
+         acc_stderr=as.numeric(acc_stderr))%>%
+  mutate(Task = fct_recode(Task,
+                           "ARC-Easy"="arc_easy",
+                           "BLiMP"="blimp",
+                           "LAMBADA (OpenAI version)"="lambada_openai",
+                           "SciQ"="sciq",
+                           "SWAG"="swag"))%>%
+  ggplot(aes(x=ModelStep,y=acc,color=Task,fill=Task)) + facet_manual(FullName~ModelSeed,design=all_seeds_design)  +theme_minimal() + geom_line() + geom_ribbon(aes(ymin=acc-acc_stderr,ymax=acc+acc_stderr),alpha = 0.3, colour = NA)+
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=c( "#1F78B4", "#33A02C", "#E31A1C" , "#FF7F00" ,"#6A3D9A"))+ scale_fill_manual(values=c( "#1F78B4" , "#33A02C" ,"#E31A1C" , "#FF7F00", "#6A3D9A")) + guides(color = guide_legend(byrow = TRUE))+ylab("Benchmark Accuracy")+
+  theme(legend.key.spacing.y = unit(0.25, 'cm'))
+
+
+ggsave("eval_acc.pdf",eval_plot_acc,width=12,height=18)
+
+eval_plot_acc
+```
+
+```{r,fig.width=10,echo=FALSE}
+eval_plot_ppl = eval_data%>%
+  filter(Task %in% c("paloma_c4_en","paloma_dolma-v1_5","paloma_falcon-refinedweb","paloma_mc4","paloma_ptb","paloma_redpajama","paloma_wikitext_103"))%>%
+  filter(MetricName=="bits_per_byte")%>%
+  pivot_wider(names_from="MetricName",values_from = MetricValue)%>%
+  mutate(bits_per_byte=as.numeric(bits_per_byte))%>%
+  mutate(Task = fct_recode(Task,
+                           "C4 (Paloma)"="paloma_c4_en",
+                           "Dolma v1.5 (Paloma)"="paloma_dolma-v1_5",
+                           "RefinedWeb (Paloma)"="paloma_falcon-refinedweb",
+                           "mC4-en (Paloma)"="paloma_mc4",
+                           "Penn TreeBank (Paloma)"="paloma_ptb",
+                           "RedPajama (Paloma)"="paloma_redpajama",
+                           "WikiText-103 (Paloma)"="paloma_wikitext_103"))%>%
+  ggplot(aes(x=ModelStep,y=bits_per_byte,color=Task,fill=Task)) + facet_manual(FullName~ModelSeed,design=all_seeds_design)  +theme_minimal() + geom_line() + 
+  scale_x_log10(name="Training Steps",breaks = trans_breaks('log10', function(x) 10^x),labels = trans_format('log10', math_format(10^.x))) + scale_color_manual(values=RColorBrewer::brewer.pal(name = "Dark2",n=7))+ scale_fill_manual(values=RColorBrewer::brewer.pal(name = "Dark2",n=7)) + guides(color = guide_legend(byrow = TRUE))+ylab("Perplexity (bits per text byte)")+
+  theme(legend.key.spacing.y = unit(0.25, 'cm'))
+
+
+ggsave("eval_ppl.pdf",eval_plot_ppl,width=12,height=18)
+
+eval_plot_ppl
+```
+
+

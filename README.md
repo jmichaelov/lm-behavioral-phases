@@ -1,6 +1,6 @@
-# Qualitative Shifts in Language Models Over the Course of Training
+# Language Model Behavioral Phases are Consistent Across Architecture, Training Data, and Scale
 
-We provide the code, data, and models to replicate the analyses in 'Qualitative Shifts in Language Models Over the Course of Training'.
+We provide the code, data, and models to replicate the analyses in 'Language Model Behavioral Phases are Consistent Across Architecture, Training Data, and Scale', published at NeurIPS 2025. Please [cite](#paper-citation) if you use this code.
 
 **Quick Links**
 
@@ -204,3 +204,21 @@ The models we created as part of this research (Parc-Pythia, Parc-Mamba, and Par
 * [`RColorBrewer`](https://CRAN.R-project.org/package=RColorBrewer): Apache License 2.0
 
 * [`viridisLite`](https://sjmgarnier.github.io/viridisLite/): MIT License
+
+
+## Paper Citation
+Please cite the paper if you use this code:
+```
+@inproceedings{michaelov_levy_bergen_2025_neurips,
+ author = {Michaelov, James and Levy, Roger and Bergen, Benjamin},
+ booktitle = {Advances in Neural Information Processing Systems},
+ editor = {D. Belgrave and C. Zhang and H. Lin and R. Pascanu and P. Koniusz and M. Ghassemi and N. Chen},
+ pages = {102407--102447},
+ publisher = {Curran Associates, Inc.},
+ title = {Language Model Behavioral Phases are Consistent Across Architecture, Training Data, and Scale},
+ url = {https://proceedings.neurips.cc/paper_files/paper/2025/file/9432b29b0e25991aa28aff8c7bbe281c-Paper-Conference.pdf},
+ volume = {38},
+ year = {2025}
+}
+
+```
